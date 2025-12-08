@@ -1,6 +1,22 @@
 # Context: NT AUTHORITY\SYSTEM
 # Features: Service Auto-Fix | Text Parsing (NullRef Proof) | CBS Analysis
 
+# --- RMM VARIABLE INTEGRATION ---
+# Checks if the RMM has injected a specific policy preference
+if (-not [string]::IsNullOrWhiteSpace($env:ForceExecutionPolicy)) {
+    Write-Output "RMM Variable Detected: Setting ExecutionPolicy to '$env:ForceExecutionPolicy' for this process."
+    try {
+        Set-ExecutionPolicy -ExecutionPolicy $env:ForceExecutionPolicy -Scope Process -Force -ErrorAction Stop
+    }
+    catch {
+        Write-Output "   Warning: Could not set ExecutionPolicy. GPO may be overriding this setting."
+    }
+}
+# Fallback: If no variable, ensure we can at least run local commands
+else {
+    Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force -ErrorAction SilentlyContinue
+}
+
 $ErrorActionPreference = "Continue"
 
 # --- 0. ERROR DATABASE (For CBS Analysis) ---
@@ -165,4 +181,5 @@ Write-Output "`nStep 2: Starting System File Checker (SFC)..."
 $sfcProcess = Start-Process -FilePath "sfc.exe" -ArgumentList "/scannow" -Wait -NoNewWindow -PassThru
 
 Write-Output "Operation Complete. SFC Exit Code: $($sfcProcess.ExitCode)"
+
 exit $sfcProcess.ExitCode
