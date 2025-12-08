@@ -2,7 +2,6 @@
 # Features: Service Auto-Fix | Text Parsing (NullRef Proof) | CBS Analysis
 
 # --- RMM VARIABLE INTEGRATION ---
-# Checks if the RMM has injected a specific policy preference
 if (-not [string]::IsNullOrWhiteSpace($env:ForceExecutionPolicy)) {
     Write-Output "RMM Variable Detected: Setting ExecutionPolicy to '$env:ForceExecutionPolicy' for this process."
     try {
@@ -12,7 +11,6 @@ if (-not [string]::IsNullOrWhiteSpace($env:ForceExecutionPolicy)) {
         Write-Output "   Warning: Could not set ExecutionPolicy. GPO may be overriding this setting."
     }
 }
-# Fallback: If no variable, ensure we can at least run local commands
 else {
     Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force -ErrorAction SilentlyContinue
 }
@@ -55,7 +53,6 @@ try {
         Write-Output "   Fixing TrustedInstaller Service state..."
         Set-Service "TrustedInstaller" -StartupType Manual
         Start-Service "TrustedInstaller"
-        # Small sleep to ensure service handles the start request
         Start-Sleep -Seconds 2 
         Write-Output "   TrustedInstaller Started."
     }
@@ -72,29 +69,21 @@ Function Get-CbsAnalysis {
     if (-not (Test-Path $LogPath)) { return "CBS.log not found." }
 
     try {
-        # FORCE READ: Use FileStream to bypass 'TrustedInstaller' file locks
         $FileStream = [System.IO.File]::Open($LogPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
         $Reader = New-Object System.IO.StreamReader($FileStream)
         
         $RelevantLines = @()
         while (($Line = $Reader.ReadLine()) -ne $null) {
-            # Extract Timestamp (Standard CBS format: 2023-12-01 10:00:00)
             if ($Line -match "^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})") {
                 $TimeStr = $matches[1]
                 try {
-                    # Explicit Parse to avoid Culture/Locale issues
                     $LogTime = [DateTime]::ParseExact($TimeStr, "yyyy-MM-dd HH:mm:ss", $null)
-                    
                     if ($LogTime -ge $StartTime) {
-                        # Filter for Errors or Hex codes
                         if ($Line -match ", Error" -or $Line -match "0x[0-9a-fA-F]{8}") {
                             $RelevantLines += $Line
                         }
                     }
-                } catch {
-                    # Skip line if date parsing fails
-                    continue 
-                }
+                } catch { continue }
             }
         }
         $Reader.Close()
@@ -119,41 +108,47 @@ Function Get-CbsAnalysis {
     }
 }
 
-# --- 3. COMPONENT STORE HEALTH (Scan) ---
+# --- 3. HELPER FUNCTION: RUN-PROCESS SAFE ---
+# Helper to run commands without Tee-Object -Host issues
+Function Run-ProcessSafe {
+    Param($FileName, $Arguments)
+    
+    $pInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $pInfo.FileName = $FileName
+    $pInfo.Arguments = $Arguments
+    $pInfo.RedirectStandardOutput = $true
+    $pInfo.UseShellExecute = $false
+    $p = New-Object System.Diagnostics.Process
+    $p.StartInfo = $pInfo
+    $p.Start() | Out-Null
+
+    $outputBuffer = ""
+    while (-not $p.StandardOutput.EndOfStream) {
+        $line = $p.StandardOutput.ReadLine()
+        # Filter SFC Spam
+        if ($line -notmatch "Verification \d+% complete") {
+             Write-Host $line
+        }
+        $outputBuffer += "$line`n"
+    }
+    $p.WaitForExit()
+    return $outputBuffer
+}
+
+# --- 4. COMPONENT STORE HEALTH (Scan) ---
 Write-Output "Step 1: Assessing Component Store Health (DISM Binary)..."
 Write-Output "   Please wait. This process may take 10-20 minutes..."
 
-# Using Start-Process to ensure we get a clean exit code and handle stdout correctly
-$pInfo = New-Object System.Diagnostics.ProcessStartInfo
-$pInfo.FileName = "dism.exe"
-$pInfo.Arguments = "/Online /Cleanup-Image /ScanHealth /English"
-$pInfo.RedirectStandardOutput = $true
-$pInfo.UseShellExecute = $false
-$p = New-Object System.Diagnostics.Process
-$p.StartInfo = $pInfo
-$p.Start() | Out-Null
-
-# Capture Output Live
-$scanOutputString = ""
-while (-not $p.StandardOutput.EndOfStream) {
-    $line = $p.StandardOutput.ReadLine()
-    $scanOutputString += "$line`n"
-    Write-Host $line # Live output to host
-}
-$p.WaitForExit()
+$scanOutputString = Run-ProcessSafe -FileName "dism.exe" -Arguments "/Online /Cleanup-Image /ScanHealth /English"
 
 # Parse Text Output
 if ($scanOutputString -match "component store is repairable" -or $scanOutputString -match "corruption detected") {
     Write-Output "   Status: Corruption detected. Initiating Repair..."
     
-    # --- 4. REPAIR EXECUTION ---
-    # We use direct invocation with Tee-Object here, but we check patterns for success
-    # because Exit Codes in DISM RestoreHealth can be misleading (0 sometimes implies success even if files weren't fixed)
-    $repairOutput = & dism.exe /Online /Cleanup-Image /RestoreHealth /English 2>&1 | Tee-Object -Host
-    $repairString = $repairOutput -join "`n"
+    # --- REPAIR EXECUTION ---
+    $repairOutput = Run-ProcessSafe -FileName "dism.exe" -Arguments "/Online /Cleanup-Image /RestoreHealth /English"
     
-    # Check explicitly for success message
-    if ($repairString -match "The restore operation completed successfully") {
+    if ($repairOutput -match "The restore operation completed successfully") {
         Write-Output "   Repair Operation Completed Successfully."
     }
     else {
@@ -167,19 +162,29 @@ elseif ($scanOutputString -match "No component store corruption detected") {
 else {
     # Ambiguous result
     Write-Output "   Warning: Scan result unclear. Attempting force repair..."
-    $repairOutput = & dism.exe /Online /Cleanup-Image /RestoreHealth /English 2>&1 | Tee-Object -Host
-    $repairString = $repairOutput -join "`n"
+    $repairOutput = Run-ProcessSafe -FileName "dism.exe" -Arguments "/Online /Cleanup-Image /RestoreHealth /English"
 
-    if ($repairString -notmatch "The restore operation completed successfully") { 
+    if ($repairOutput -notmatch "The restore operation completed successfully") { 
         Get-CbsAnalysis -StartTime $ScriptStartTime 
     }
 }
 
 # --- 5. SYSTEM FILE CHECKER (SFC) ---
 Write-Output "`nStep 2: Starting System File Checker (SFC)..."
-# Start-Process ensures we capture the specific Exit Code from SFC
-$sfcProcess = Start-Process -FilePath "sfc.exe" -ArgumentList "/scannow" -Wait -NoNewWindow -PassThru
 
-Write-Output "Operation Complete. SFC Exit Code: $($sfcProcess.ExitCode)"
+# Running SFC via the helper to clean the logs
+$sfcOutput = Run-ProcessSafe -FileName "sfc.exe" -Arguments "/scannow"
 
-exit $sfcProcess.ExitCode
+# Check exit code based on text output since we wrapped the process
+if ($sfcOutput -match "Windows Resource Protection did not find any integrity violations") {
+    Write-Output "Operation Complete. SFC Status: Clean (Exit Code 0)"
+    exit 0
+}
+elseif ($sfcOutput -match "Windows Resource Protection found corrupt files and successfully repaired them") {
+    Write-Output "Operation Complete. SFC Status: Repaired (Exit Code 1)"
+    exit 1
+}
+else {
+    Write-Output "Operation Complete. SFC Status: Failed or Unrepaired."
+    exit -1
+}
