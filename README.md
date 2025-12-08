@@ -22,3 +22,30 @@ Usage The script requires Administrative privileges.
 **powershell.exe -ExecutionPolicy Bypass -File .\Repair-SystemImage.ps1**
 
 Return Codes The script passes through the exit code from the final sfc.exe process, allowing RMM tools or CI/CD pipelines to determine the final system health status.
+
+
+# --- 0. ERROR DATABASE (For CBS Analysis) ---
+$KnownErrors = @{
+    "0x80070002" = "ERROR_FILE_NOT_FOUND";
+    "0x800f0831" = "CBS_E_STORE_CORRUPTION";
+    "0x8007000D" = "ERROR_INVALID_DATA";
+    "0x800F081F" = "CBS_E_SOURCE_MISSING";
+    "0x80073712" = "ERROR_SXS_COMPONENT_STORE_CORRUPT";
+    "0x800736CC" = "ERROR_SXS_FILE_HASH_MISMATCH";
+    "0x800705B9" = "ERROR_XML_PARSE_ERROR";
+    "0x80070246" = "ERROR_ILLEGAL_CHARACTER";
+    "0x8007370D" = "ERROR_SXS_IDENTITY_PARSE_ERROR";
+    "0x8007370B" = "ERROR_SXS_INVALID_IDENTITY_ATTRIBUTE_NAME";
+    "0x8007370A" = "ERROR_SXS_INVALID_IDENTITY_ATTRIBUTE_VALUE";
+    "0x80070057" = "ERROR_INVALID_PARAMETER";
+    "0x800B0100" = "TRUST_E_NOSIGNATURE";
+    "0x80092003" = "CRYPT_E_FILE_ERROR";
+    "0x800B0101" = "CERT_E_EXPIRED";
+    "0x8007371B" = "ERROR_SXS_TRANSACTION_CLOSURE_INCOMPLETE";
+    "0x80070490" = "ERROR_NOT_FOUND";
+    "0x800f0984" = "PSFX_E_MATCHING_BINARY_MISSING";
+    "0x800f0986" = "PSFX_E_APPLY_FORWARD_DELTA_FAILED";
+    "0x800f0982" = "PSFX_E_MATCHING_COMPONENT_NOT_FOUND";
+    "0x8024002E" = "WU_E_WU_DISABLED";
+    "0x800f0906" = "CBS_E_DOWNLOAD_FAILURE";
+}
