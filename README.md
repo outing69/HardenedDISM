@@ -1,6 +1,8 @@
 # HardenedDISM
 
 ## Description
+THIS IS A WORK IN PROGRESS!
+
 This PowerShell script serves as an advanced wrapper for Windows repair utilities (DISM and SFC), designed for unattended execution and robust error handling. Unlike standard batch implementations, this script actively parses the Windows Component Based Servicing (CBS) log to identify specific failure causes when repairs are unsuccessful.
 
 It is engineered to run in restricted environments (e.g., `NT AUTHORITY\SYSTEM`) and handles file locking issues that typically prevent scripts from reading logs during active repair sessions.
