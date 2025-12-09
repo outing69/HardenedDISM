@@ -10,7 +10,7 @@
 Standard repair scripts often run `DISM /RestoreHealth` blindly, wasting time and resources on healthy systems. This tool uses **Logic Gates** to assess system health first. It is designed for both **Interactive Use** (showing progress bars) and **RMM Automation** (Datto, NinjaOne, ConnectWise) with specific "Silent" modes and robust exit code handling.
 
 ### Key Features
-* **🧠 Logic Gates:** Runs `/ScanHealth` first. Only runs the heavy `/RestoreHealth` operation if actual corruption is detected.
+* **🧠 Logic Gates:** Runs `/ScanHealth` first. Only runs `/RestoreHealth` operation if actual corruption is detected.
 * **🔍 Root Cause Analysis:** If a repair fails (or corruption is found), the script bypasses `TrustedInstaller` locks to read the `CBS.log`, translating obscure hex codes (e.g., `0x800f081f`) into human-readable errors.
 * **🛡️ RMM Hardened:** Automatically detects if running as a 32-bit agent (SysWOW64) on a 64-bit OS and redirects to `Sysnative` to ensure `DISM` and `SFC` execute correctly.
 * **⚡ Responsive UI:** Uses `Tee-Object` to capture output for logic checks while simultaneously streaming progress bars to the console for human operators.
