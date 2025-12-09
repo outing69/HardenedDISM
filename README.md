@@ -1,63 +1,120 @@
-# HardenedDISM
+# PowerShell Windows Component Store Repair & Diagnosis Tool
 
-## Description
-THIS IS A WORK IN PROGRESS!
+> **A "Smart" wrapper for DISM and SFC that detects corruption, repairs only when necessary, and diagnoses the root cause of failures by parsing the CBS.log.**
 
-This PowerShell script serves as an advanced wrapper for Windows repair utilities (DISM and SFC), designed for unattended execution and robust error handling. Unlike standard batch implementations, this script actively parses the Windows Component Based Servicing (CBS) log to identify specific failure causes when repairs are unsuccessful.
+![PowerShell](https://img.shields.io/badge/PowerShell-5.1+-blue.svg)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
 
-It is engineered to run in restricted environments (e.g., `NT AUTHORITY\SYSTEM`) and handles file locking issues that typically prevent scripts from reading logs during active repair sessions.
+## 🚀 Overview
 
-**Note:** This script is designed to run as `SYSTEM`. If you are testing this manually, you must run your PowerShell terminal as **Administrator**, otherwise service checks and DISM commands will fail.
+Standard repair scripts often run `DISM /RestoreHealth` blindly, wasting time and resources on healthy systems. This tool uses **Logic Gates** to assess system health first. It is designed for both **Interactive Use** (showing progress bars) and **RMM Automation** (Datto, NinjaOne, ConnectWise) with specific "Silent" modes and robust exit code handling.
 
-## Key Features
+### Key Features
+* **🧠 Logic Gates:** Runs `/ScanHealth` first. Only runs the heavy `/RestoreHealth` operation if actual corruption is detected.
+* **🔍 Root Cause Analysis:** If a repair fails (or corruption is found), the script bypasses `TrustedInstaller` locks to read the `CBS.log`, translating obscure hex codes (e.g., `0x800f081f`) into human-readable errors.
+* **🛡️ RMM Hardened:** Automatically detects if running as a 32-bit agent (SysWOW64) on a 64-bit OS and redirects to `Sysnative` to ensure `DISM` and `SFC` execute correctly.
+* **⚡ Responsive UI:** Uses `Tee-Object` to capture output for logic checks while simultaneously streaming progress bars to the console for human operators.
 
-* **Intelligent Workflow:** Automatically chains `DISM /ScanHealth`, `DISM /RestoreHealth`, and `SFC /scannow` based on corruption detection.
-* **Locked File Access:** Utilizes .NET `[System.IO.FileStream]` with ReadWrite sharing to parse `CBS.log` even while `TrustedInstaller.exe` holds an exclusive lock on the file.
-* **Error Analysis:** If a repair fails, the script parses the log for specific error codes (e.g., `0x800f081F`, `0x80070002`) and outputs the root cause to the console.
-* **Locale Independence:** Forces DISM to output in English to ensure regex status matching works correctly regardless of the host OS language settings.
-* **Service Recovery:** Automatically validates and attempts to start the `TrustedInstaller` service if it is disabled or stopped.
+---
 
-## RMM Configuration
+## 📥 Installation
 
-To integrate this with your RMM (Remote Monitoring and Management) solution, you can configure the execution policy using an environment variable. This avoids the need to hardcode changes within the script file.
+1. Download the script `Invoke-WinSxSRepair.ps1` from this repository.
+2. Upload it to your RMM script library or save it to your local machine.
 
-**Variable Configuration:**
+## 💻 Usage
 
-* **Variable Name:** `ForceExecutionPolicy`
-* **Type:** Selection or String
-* **Recommended Value:** `Bypass`
-* **Description:** Sets the Process-scope execution policy to ensure the script runs without restriction errors (e.g., overriding `Restricted` or `AllSigned` policies defined by Group Policy).
+### Interactive Mode (Standalone)
+Run the script in an Administrator PowerShell console. It will display progress bars and live status updates.
 
-## Usage
-
-The script requires Administrative privileges.
-
-**Manual Execution:**
 ```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\Repair-SystemImage.ps1
+# Default (Scan first, repair if needed)
+.\Invoke-WinSxSRepair.ps1
 
+# Force a repair (Skip scan)
+.\Invoke-WinSxSRepair.ps1 -Mode Force
 
-# ---  ERROR DATABASE (For CBS Analysis) ---
-    "0x80070002" = "ERROR_FILE_NOT_FOUND
-    "0x800f0831" = "CBS_E_STORE_CORRUPTION
-    "0x8007000D" = "ERROR_INVALID_DATA
-    "0x800F081F" = "CBS_E_SOURCE_MISSING
-    "0x80073712" = "ERROR_SXS_COMPONENT_STORE_CORRUPT
-    "0x800736CC" = "ERROR_SXS_FILE_HASH_MISMATCH
-    "0x800705B9" = "ERROR_XML_PARSE_ERROR
-    "0x80070246" = "ERROR_ILLEGAL_CHARACTER
-    "0x8007370D" = "ERROR_SXS_IDENTITY_PARSE_ERROR
-    "0x8007370B" = "ERROR_SXS_INVALID_IDENTITY_ATTRIBUTE_NAME
-    "0x8007370A" = "ERROR_SXS_INVALID_IDENTITY_ATTRIBUTE_VALUE
-    "0x80070057" = "ERROR_INVALID_PARAMETER
-    "0x800B0100" = "TRUST_E_NOSIGNATURE
-    "0x80092003" = "CRYPT_E_FILE_ERROR
-    "0x800B0101" = "CERT_E_EXPIRED
-    "0x8007371B" = "ERROR_SXS_TRANSACTION_CLOSURE_INCOMPLETE
-    "0x80070490" = "ERROR_NOT_FOUND
-    "0x800f0984" = "PSFX_E_MATCHING_BINARY_MISSING
-    "0x800f0986" = "PSFX_E_APPLY_FORWARD_DELTA_FAILED
-    "0x800f0982" = "PSFX_E_MATCHING_COMPONENT_NOT_FOUND
-    "0x8024002E" = "WU_E_WU_DISABLED
-    "0x800f0906" = "CBS_E_DOWNLOAD_FAILURE
+### RMM / Silent Mode
 
+Use the `-Silent` switch to suppress progress bars (prevents log bloat in RMM dashboards).
+
+```powershell
+.\Invoke-WinSxSRepair.ps1 -Mode Auto -Silent
+```
+
+-----
+
+## ⚙️ Parameters
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| **`-Mode`** | String | `"Auto"` | **`Auto`**: Scan first. If corrupt, Repair.<br>**`Audit`**: Scan only. Log corruption but do not repair.<br>**`Force`**: Skip scan. Run Repair immediately. |
+| **`-Silent`** | Switch | `$false` | Suppresses console progress bars (e.g., `10.1%`, `10.2%`) to keep RMM logs clean. |
+
+-----
+
+## 🔧 RMM Configuration Guide
+
+This script includes a "Shim" that automatically maps Environment Variables to script parameters, making it native for tools like **Datto RMM**.
+
+### Datto RMM Setup
+
+1.  **Create Component:** Select "PowerShell" as the script type.
+2.  **Paste Script:** Copy the content of `Invoke-WinSxSRepair.ps1`.
+3.  **Define Variables:**
+      * `Mode` (Selection): Options `Auto`, `Audit`, `Force`. Default: `Auto`.
+      * `Silent` (Boolean): Default `true`.
+4.  **Set Post-Conditions (Alerting):**
+      * **Alert on Failure:** Trigger if StdOut contains `[FAILURE]`.
+      * **Alert on Critical Corruption:** Trigger if StdOut contains `[CRITICAL]`.
+
+### Other RMMs (NinjaOne, ConnectWise, N-Able)
+
+Ensure the script is run as **System** (NT AUTHORITY\\SYSTEM). Pass parameters normally via the "Script Parameters" field:
+`-Mode "Auto" -Silent`
+
+-----
+
+## 📝 Error Codes & Logging
+
+The script uses standard exit codes for RMM monitoring:
+
+  * **`0`**: Success (System Healthy or Repaired Successfully).
+  * **`1`**: Failure (Repair failed, SFC failed, or Critical Error).
+
+**Log Analysis:**
+The script outputs tagged logs for easy parsing:
+
+  * `[SYSTEM]`: General status updates.
+  * `[CRITICAL]`: Known error matched in CBS.log (e.g., `CBS_E_SOURCE_MISSING`).
+  * `[FAILURE]`: Operation failed.
+  * `[LOG]`: Raw error line from CBS.log.
+
+-----
+
+## 📜 License
+
+MIT License
+
+Copyright (c) 2025
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+```
+```
