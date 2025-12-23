@@ -8,7 +8,7 @@
     "Audit" = Scan only. Do not repair.
     "Force" = Skip scan. Go straight to Repair.
 .PARAMETER Silent
-    Switch. If used, suppresses progress bars (Recommended for RMM logs).
+    Boolean. Default True. Suppresses progress bars (Recommended for RMM logs).
 #>
 [CmdletBinding()]
 Param(
@@ -67,7 +67,8 @@ Function Invoke-DismCommand {
     Param([string]$Arguments)
     
     # Use the calculated path (Sysnative or System32)
-    $cmdString = "& '$DismPath' $Arguments"
+    $quietFlag = if ($Silent) { " /Quiet" } else { "" }
+    $cmdString = "& '$DismPath' $Arguments$quietFlag"
     
     if ($Silent) {
         Write-Output "   (Silent Mode: Progress bar hidden for RMM logging)"
@@ -174,7 +175,7 @@ else {
 # --- 4. REPAIR EXECUTION ---
 if ($RunRepair) {
     Write-Output "Step 2: Starting Repair Operation..."
-    $repairOutput = Invoke-DismCommand -Arguments "/Online /Cleanup-Image /RestoreHealth /English"
+    $null = Invoke-DismCommand -Arguments "/Online /Cleanup-Image /RestoreHealth /English"
     
     if ($global:DismExitCode -eq 0) {
         Write-Output "   [SYSTEM] Repair Sequence Finalized."
