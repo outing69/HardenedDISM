@@ -15,12 +15,12 @@ Param(
     [ValidateSet("Auto", "Audit", "Force")]
     [string]$Mode = "Auto",
 
-    [switch]$Silent
+    [bool]$Silent = $true
 )
 
 # --- DATTO RMM INTEGRATION SHIM ---
 if ($env:Mode) { $Mode = $env:Mode }
-if ($env:Silent -eq 'true') { $Silent = $true }
+if ($env:Silent) { $Silent = $env:Silent -eq 'true' }
 
 $ErrorActionPreference = "Continue"
 
